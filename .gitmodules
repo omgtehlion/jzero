@@ -1,0 +1,9 @@
+[submodule "packages/linenoize"]
+	path = packages/linenoize
+	url = https://github.com/omgtehlion/linenoize-win32.git
+[submodule "packages/zig-regex"]
+	path = packages/zig-regex
+	url = https://github.com/omgtehlion/zig-regex
+[submodule "packages/zig-json5"]
+	path = packages/zig-json5
+	url = https://github.com/omgtehlion/zig-json5
