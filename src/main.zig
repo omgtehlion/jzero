@@ -1,14 +1,12 @@
 //  zig build -Drelease-fast
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Regex = @import("zig-regex").Regex; //https://github.com/tiehuis/zig-regex
-// see also https://github.com/ziglibs/string-searching
 const Linenoise = @import("linenoise").Linenoise;
 const tree = @import("./tree.zig");
 const tui = @import("./tui-win32.zig");
 //const tui = if (@import("builtin").os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
 const ChunkedList = @import("./containers.zig").ChunkedList;
-const AutoHashMap = std.AutoHashMap;
+const search = @import("./search.zig");
 
 var gpa: Allocator = undefined;
 
@@ -23,7 +21,6 @@ var currentY: u32 = 0;
 // ui state
 var ephemeralInfo: ?[]const u8 = null;
 var shortFileName: []const u8 = undefined;
-var searchPrompt = false;
 // statusbar layout
 var loadingWidth: u16 = 0;
 
@@ -61,7 +58,7 @@ fn formatKey(node: *tree.Node, buf: []u8) []const u8 {
 fn drawPreview(node: *tree.Node, tvXX: u16) void {
     switch (node.nType) {
         .literal => {
-            tui.addnstrto(node.value, tvXX);
+            printMatched(node.value, tui.stNormal, tvXX);
         },
         .obj => {
             tui.addnstrto("{", tvXX);
@@ -70,7 +67,7 @@ fn drawPreview(node: *tree.Node, tvXX: u16) void {
                 if (tui.getcurx() >= tvXX)
                     return;
                 const child = tree.at(ch);
-                tui.addnstrto(child.key.str, tvXX);
+                printMatched(child.key.str, tui.stNormal, tvXX);
                 tui.addnstrto(": ", tvXX);
                 if (tui.getcurx() >= tvXX)
                     return;
@@ -95,6 +92,72 @@ fn drawPreview(node: *tree.Node, tvXX: u16) void {
             }
             tui.addnstrto("]", tvXX);
         },
+    }
+}
+
+fn segBefore(a: []const u8, b: []const u8) []const u8 {
+    const lenBefore = @ptrToInt(b.ptr) -| @ptrToInt(a.ptr);
+    return a[0..lenBefore];
+}
+
+fn segAfter(a: []const u8, b: []const u8) []const u8 {
+    const begin = @ptrToInt(b.ptr) + b.len -| @ptrToInt(a.ptr);
+    return if (a.len > begin) a[begin..a.len] else a[a.len..a.len];
+}
+
+fn printMatched(str: []const u8, styleReturn: u16, tvXX: u16) void {
+    var matchIter = search.iterator(str);
+    var s = str;
+    while (matchIter.next()) |match| {
+        tui.addnstrto(segBefore(s, match), tvXX);
+        tui.style(if (search.currentMatch()) |cm| if (match.ptr == cm.ptr) tui.stMatchActive else tui.stMatchInactive else tui.stMatchInactive);
+        tui.addnstrto(match, tvXX);
+        tui.style(styleReturn);
+        s = segAfter(str, match);
+    }
+    if (s.len > 0)
+        tui.addnstrto(s, tvXX);
+}
+
+fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
+    tui.mvhline(y, 0, ' ', @min((node.level -| 1) * 2, tvXX), tui.stNormal);
+    tui.style(if (selected) tui.stSelected else tui.stNormal);
+    var arrow = if (node.firstChild != tree.NO_ID) (if (node.collapsed) "► " else "▼ ") else "  "; // ▸▾
+    tui.addnstr(arrow);
+    tui.style(if (selected) tui.stSelected else tui.stKey);
+    switch (node.key) {
+        .str => |s| {
+            printMatched(s, if (selected) tui.stSelected else tui.stKey, tvXX);
+        },
+        .int => |i| {
+            if (node.level > 0) {
+                var buf: [12]u8 = undefined;
+                buf[0] = if (node.level == 1) '$' else '[';
+                var len = std.fmt.bufPrintIntToSlice(buf[1..], i, 10, .lower, .{}).len;
+                if (node.level != 1) {
+                    buf[len + 1] = ']';
+                    len += 1;
+                }
+                tui.addnstrto(buf[0 .. len + 1], tvXX);
+            }
+        },
+    }
+    tui.style(if (selected) tui.stSelected else tui.stNormal);
+    tui.addnstrto(":", tvXX);
+    if (selected) tui.style(tui.stNormal);
+    tui.addnstrto(" ", tvXX);
+    if (node.collapsed) {
+        drawPreview(node, tvXX);
+    } else {
+        switch (node.nType) {
+            .literal => {},
+            .obj => tui.addnstrto(if (node.firstChild == tree.NO_ID) "{}" else "{", tvXX),
+            .array => tui.addnstrto(if (node.firstChild == tree.NO_ID) "[]" else "[", tvXX),
+        }
+    }
+    if (node.value.len > 0) {
+        tui.style(tui.stValue);
+        printMatched(node.value, tui.stValue, tvXX);
     }
 }
 
@@ -125,50 +188,7 @@ fn redraw() void {
             const node = tree.at(nodeId);
             if (selected)
                 selectedNode = node;
-            tui.mvhline(y, 0, ' ', @min((node.level -| 1) * 2, tvXX), tui.stNormal);
-            tui.style(if (selected) tui.stSelected else tui.stNormal);
-            var arrow = if (node.firstChild != tree.NO_ID) (if (node.collapsed) "► " else "▼ ") else "  "; // ▸▾
-            tui.addnstr(arrow);
-            tui.style(if (selected) tui.stSelected else tui.stKey);
-            if (keyfound.get(nodeId)) |found| {
-                const s = node.key.str;
-                if (found.start > 0)
-                    tui.addnstrto(s[0..found.start], tvXX);
-                tui.style(tui.stFound);
-                tui.addnstrto(s[found.start..found.end], tvXX);
-                tui.style(if (selected) tui.stSelected else tui.stKey);
-                tui.addnstrto(s[found.end..], tvXX);
-            } else {
-                var buf: [12]u8 = undefined;
-                tui.addnstrto(formatKey(node, &buf), tvXX);
-            }
-            tui.style(if (selected) tui.stSelected else tui.stNormal);
-            tui.addnstrto(":", tvXX);
-            if (selected) tui.style(tui.stNormal);
-            tui.addnstrto(" ", tvXX);
-            if (node.collapsed) {
-                drawPreview(node, tvXX);
-            } else {
-                switch (node.nType) {
-                    .literal => {},
-                    .obj => tui.addnstrto(if (node.firstChild == tree.NO_ID) "{}" else "{", tvXX),
-                    .array => tui.addnstrto(if (node.firstChild == tree.NO_ID) "[]" else "[", tvXX),
-                }
-            }
-            if (node.value.len > 0) {
-                tui.style(tui.stValue);
-                if (valfound.get(nodeId)) |found| {
-                    const s = node.value;
-                    if (found.start > 0)
-                        tui.addnstrto(s[0..found.start], tvXX);
-                    tui.style(tui.stFound);
-                    tui.addnstrto(s[found.start..found.end], tvXX);
-                    tui.style(tui.stValue);
-                    tui.addnstrto(s[found.end..], tvXX);
-                } else {
-                    tui.addnstrto(node.value, tvXX);
-                }
-            }
+            drawLine(node, selected, y, tvXX);
             nn = node.nextVisibleId();
         } else {
             tui.mvstyleprint(y, 0, tui.stWilderness, "~", .{});
@@ -190,7 +210,7 @@ fn redraw() void {
         drawBreadcrumbs(node, tui.COLS);
     tui.mvstyleprint(tui.ROWS - 2, tui.COLS - @intCast(u16, std.unicode.utf8CountCodepoints(shortFileName) catch 0), tui.stStatBar, "{s}", .{shortFileName});
 
-    if (!searchPrompt) {
+    if (!search.prompt) {
         tui.mvhline(tui.ROWS - 1, 0, ' ', tui.COLS - loadingWidth, tui.stNormal);
         if (ephemeralInfo) |ei|
             tui.mvstyleprint(tui.ROWS - 1, 0, tui.stNormal, "{s}", .{ei});
@@ -229,6 +249,7 @@ fn drawLoadingProgress() void {
     }
     tui.refresh();
 }
+
 fn drawLoadingFinish(elapsedMs: i64) void {
     ttyMutex.lock();
     defer ttyMutex.unlock();
@@ -242,60 +263,34 @@ fn drawLoadingFinish(elapsedMs: i64) void {
     tui.refresh();
 }
 
-const InputMode = enum { read, search };
-const Span = struct { start: u32, end: u32 };
-var keyfound: AutoHashMap(u32, Span) = undefined;
-var valfound: AutoHashMap(u32, Span) = undefined;
-var re: Regex = undefined;
+pub fn searchHints(allocator: Allocator, buf: []const u8) !?[]const u8 {
+    _ = allocator;
+    _ = buf;
+    //re = Regex.compile(allocator, buf) catch return null;
+    //defer re.deinit();
+    //searchOnScreen(&re) catch return null;
+    //redraw();
+    ////tui.style(tui.stSearch);
+    //tui.mvstyleprint(tui.ROWS - 1, 0, tui.stSearch, "", .{});
+    //tui.refresh();
+    return null;
+}
 
-fn searchOnScreen(rx: *Regex) !void {
-    const tvYY = tui.ROWS - tvBottom;
-    keyfound.clearAndFree();
-    valfound.clearAndFree();
-    var nn = tree.idAtY(scrollY);
-    var y: u16 = tvY;
-    while (y < tvYY) : (y += 1) {
-        if (nn) |nodeId| {
-            const node = tree.at(nodeId);
+fn findMatchedNode() ?*tree.Node {
+    if (search.currentMatch()) |match| {
+        var iter = tree.iterator();
+        while (iter.next()) |node| {
             switch (node.key) {
                 .str => |s| {
-                    var str2 = s;
-                    while (try rx.captures(str2)) |cap| {
-                        defer cap.deinit();
-                        try keyfound.put(nodeId, .{ .start = @intCast(u32, cap.slots[0].?), .end = @intCast(u32, cap.slots[1].?) });
-                        str2 = str2[cap.slots[1].?..];
-                        break; // TODO: find all entries
-                    }
+                    if (search.overlaps(match, s))
+                        return node;
                 },
                 else => {},
             }
-            if (node.collapsed) {
-                //drawPreview(node, tvXX);
-            } else {
-                if (node.value.len > 0) {
-                    //_ = c.printw(" %.*s ", c.COLS - node.level * 2 - 2 - 4 - 4, &node.content);
-                    var str2 = node.value;
-                    while (try rx.captures(str2)) |cap| {
-                        defer cap.deinit();
-                        try valfound.put(nodeId, .{ .start = @intCast(u32, cap.slots[0].?), .end = @intCast(u32, cap.slots[1].?) });
-                        str2 = str2[cap.slots[1].?..];
-                        break; // TODO: find all entries
-                    }
-                }
-            }
-            nn = node.nextVisibleId();
+            if (search.overlaps(match, node.value))
+                return node;
         }
     }
-}
-
-fn searchHints(allocator: Allocator, buf: []const u8) !?[]const u8 {
-    re = Regex.compile(allocator, buf) catch return null;
-    defer re.deinit();
-    searchOnScreen(&re) catch return null;
-    redraw();
-    //tui.style(tui.stSearch);
-    tui.mvstyleprint(tui.ROWS - 1, 0, tui.stSearch, "", .{});
-    tui.refresh();
     return null;
 }
 
@@ -372,6 +367,9 @@ pub fn main() !void {
     defer _ = GPA.deinit();
     gpa = GPA.allocator();
 
+    search.init(gpa);
+    defer search.deinit();
+
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
     _ = args.next();
@@ -410,17 +408,10 @@ pub fn main() !void {
     }
     redraw();
 
-    //var re: Regex = undefined;
-    keyfound = @TypeOf(keyfound).init(gpa);
-    defer keyfound.deinit();
-    valfound = @TypeOf(valfound).init(gpa);
-    defer valfound.deinit();
-
     var ln = Linenoise.initWithHandles(gpa, tui.input, tui.output);
     ln.print_newline = false;
     defer ln.deinit();
-    //ln.history.load("history.txt") catch {};
-    //defer ln.history.save("history.txt") catch {};
+    //ln.history.load("history.txt") catch {}; defer ln.history.save("history.txt") catch {};
     ln.hints_callback = searchHints;
 
     const key = tui.key;
@@ -433,9 +424,9 @@ pub fn main() !void {
         if (evt.keys.alt) {
             evt = switch (evt.data) {
                 .key => |k| switch (k) {
-                    key.KEY_UP => .{ .data = .{ .char = 'K' }, .keys = .{} },
-                    key.KEY_DOWN => .{ .data = .{ .char = 'J' }, .keys = .{} },
-                    key.KEY_LEFT => .{ .data = .{ .char = 'H' }, .keys = .{} },
+                    key.KEY_UP => .{ .data = .{ .char = 'K' } },
+                    key.KEY_DOWN => .{ .data = .{ .char = 'J' } },
+                    key.KEY_LEFT => .{ .data = .{ .char = 'H' } },
                     else => evt,
                 },
                 else => evt,
@@ -443,10 +434,10 @@ pub fn main() !void {
         } else {
             evt = switch (evt.data) {
                 .key => |k| switch (k) {
-                    key.KEY_UP => .{ .data = .{ .char = 'k' }, .keys = .{} },
-                    key.KEY_DOWN => .{ .data = .{ .char = 'j' }, .keys = .{} },
-                    key.KEY_LEFT => .{ .data = .{ .char = 'h' }, .keys = .{} },
-                    key.KEY_RIGHT => .{ .data = .{ .char = 'l' }, .keys = .{} },
+                    key.KEY_UP => .{ .data = .{ .char = 'k' } },
+                    key.KEY_DOWN => .{ .data = .{ .char = 'j' } },
+                    key.KEY_LEFT => .{ .data = .{ .char = 'h' } },
+                    key.KEY_RIGHT => .{ .data = .{ .char = 'l' } },
                     else => evt,
                 },
                 else => evt,
@@ -473,18 +464,29 @@ pub fn main() !void {
                 },
                 'q' => break,
                 '/' => {
-                    searchPrompt = true;
+                    search.prompt = true;
                     killEphemeral();
                     tui.mvstyleprint(tui.ROWS - 1, 0, tui.stSearch, "", .{});
                     tui.showCursor(true);
                     tui.refresh();
                     if (try ln.linenoise("/")) |input| {
                         defer ln.allocator.free(input);
-                        try ln.history.add(input);
+                        if (input.len == 0) {
+                            search.nextMatch();
+                        } else {
+                            try ln.history.add(input);
+                            try search.start(input, &fileData);
+                        }
+                        if (findMatchedNode()) |node| {
+                            node.expandParentToThis();
+                            currentY = node.y();
+                        } else {
+                            ephemeralInfo = try gpa.dupe(u8, "Not found");
+                        }
                     }
                     tui.refreshSize();
                     tui.showCursor(false);
-                    searchPrompt = false;
+                    search.prompt = false;
                 },
                 'k' => lineDelta = -1,
                 'j' => lineDelta = 1,

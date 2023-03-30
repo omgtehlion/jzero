@@ -111,7 +111,8 @@ pub const stScrollBk = 0x08;
 // other
 pub const stStatBar = 0x70;
 pub const stSearch = 0x0F;
-pub const stFound = 0x74;
+pub const stMatchActive = 0x74;
+pub const stMatchInactive = 0x60;
 pub const stLoading = 0x17;
 pub const stLoaded = 0x97;
 
@@ -261,7 +262,7 @@ pub const MouseInfo = struct { y: u16, x: u16, buttons: u16 };
 
 pub const InputEvent = struct {
     data: union(enum) { char: u32, key: u16, resize: void, mouse: MouseInfo },
-    keys: ControlKeys,
+    keys: ControlKeys = .{},
 };
 
 pub fn getch() InputEvent {

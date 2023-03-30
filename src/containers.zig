@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// This is a data structure which stores data in dynamically allocated arrays of the same size.
-/// Pointers to indexes are stable (have the same lifetime as the data structure), like in SegmentedList.
+/// This is a data structure which stores data in dynamically allocated arrays of fixed size.
+/// Pointers to elements are stable (have the same lifetime as the data structure), like in SegmentedList.
 /// The structure is not designed to be accessed per-element, use slices instead.
 pub fn ChunkedList(comptime T: type, comptime chunkSize: usize) type {
     return struct {
@@ -12,7 +12,7 @@ pub fn ChunkedList(comptime T: type, comptime chunkSize: usize) type {
         /// Total length of committed data (in elements).
         len: usize = 0,
 
-        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        /// Deinitialize with `deinit`.
         pub fn init(allocator: Allocator) Self {
             return Self{
                 .allocator = allocator,

@@ -23,6 +23,10 @@ pub fn at(i: u32) *Node {
     return tree.at(i);
 }
 
+pub fn iterator() @TypeOf(tree).Iterator {
+    return tree.iterator(0);
+}
+
 pub fn atY(y: u32) ?*Node {
     return tree.at(idAtY(y) orelse return null);
 }
@@ -109,17 +113,29 @@ pub const Node = struct {
         return 1 + if (self.collapsed) 0 else self.chHeight;
     }
 
+    /// NOTE: should not be called on subnodes inside collapsed nodes
     pub fn collapse(node: *Node, collapsed: bool) bool {
         if (node.firstChild == NO_ID or node.collapsed == collapsed)
             return false;
+        //std.debug.print("collapse {X} {}\r\n", .{ @ptrToInt(node), collapsed });
         node.collapsed = collapsed;
         const delta = node.chHeight;
         var n = node.parent;
         while (n != NO_ID) : (n = tree.at(n).parent) {
             if (collapsed) tree.at(n).chHeight -= delta else tree.at(n).chHeight += delta;
+            //std.debug.print("  adjust {X} {}\r\n", .{ @ptrToInt( tree.at(n)), delta });
         }
         skipCache.drop();
         return true;
+    }
+
+    pub fn expandParentToThis(node: *Node) void {
+        // expand in reverse order, from root to this node
+        if (node.parent != ROOT_ID) {
+            const parent = at(node.parent);
+            parent.expandParentToThis();
+            _ = parent.collapse(false);
+        }
     }
 };
 
