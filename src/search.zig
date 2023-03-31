@@ -50,8 +50,8 @@ pub fn start(q: []const u8, data: *ChunkedList(u8, 512 * 1024)) !void {
     }
 }
 
-pub fn nextMatch() void {
-    currentMatchId = if (allMatches.items.len > 0) (currentMatchId + 1) % allMatches.items.len else 0;
+pub fn nextMatch(reverse: bool) void {
+    currentMatchId = if (allMatches.items.len > 0) (if (reverse) currentMatchId + allMatches.items.len - 1 else currentMatchId + 1) % allMatches.items.len else 0;
 }
 
 pub fn currentMatch() ?[]const u8 {

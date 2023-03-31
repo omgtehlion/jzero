@@ -308,6 +308,8 @@ pub const Help =
     \\  K, ⎇↑        Move to the focused node's previous sibling
     \\  c            Collapse the focused node and all its siblings
     \\  e            Expand   the focused node and all its siblings
+    \\  n            Next match
+    \\  N            Previous match
 ;
 
 var fileData: ChunkedList(u8, 512 * 1024) = undefined;
@@ -472,7 +474,7 @@ pub fn main() !void {
                     if (try ln.linenoise("/")) |input| {
                         defer ln.allocator.free(input);
                         if (input.len == 0) {
-                            search.nextMatch();
+                            search.nextMatch(false);
                         } else {
                             try ln.history.add(input);
                             try search.start(input, &fileData);
@@ -487,6 +489,13 @@ pub fn main() !void {
                     tui.refreshSize();
                     tui.showCursor(false);
                     search.prompt = false;
+                },
+                'n', 'N' => {
+                    search.nextMatch(c == 'N');
+                    if (findMatchedNode()) |node| {
+                        node.expandParentToThis();
+                        currentY = node.y();
+                    }
                 },
                 'k' => lineDelta = -1,
                 'j' => lineDelta = 1,
