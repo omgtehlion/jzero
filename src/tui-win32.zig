@@ -85,16 +85,20 @@ const user32 = struct {
 };
 
 pub const key = struct {
-    pub const KEY_UP = 72;
-    pub const KEY_DOWN = 80;
-    pub const KEY_PPAGE = 73;
-    pub const KEY_NPAGE = 81;
-    pub const KEY_ESC = 1;
-    pub const KEY_LEFT = 75;
-    pub const KEY_RIGHT = 77;
-    pub const KEY_HOME = 71;
-    pub const KEY_END = 79;
-    pub const KEY_ENTER = 28;
+    // https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+    pub const KEY_UP = 0x26;
+    pub const KEY_DOWN = 0x28;
+    pub const KEY_PPAGE = 0x21; // VK_PRIOR
+    pub const KEY_NPAGE = 0x22; // VK_NEXT
+    pub const KEY_ESC = 0x1B;
+    pub const KEY_LEFT = 0x25;
+    pub const KEY_RIGHT = 0x27;
+    pub const KEY_HOME = 0x24;
+    pub const KEY_END = 0x23;
+    pub const KEY_ENTER = 0x0D; // VK_RETURN
+    pub fn KEY_F(comptime n: comptime_int) comptime_int {
+        return n + 0x6F;
+    }
 };
 
 pub var COLS: u16 = 0;
@@ -115,6 +119,7 @@ pub const stMatchActive = 0x74;
 pub const stMatchInactive = 0x60;
 pub const stLoading = 0x17;
 pub const stLoaded = 0x97;
+pub const stHelp = 0x8E;
 
 pub var input = w.INVALID_HANDLE_VALUE;
 pub var output = w.INVALID_HANDLE_VALUE;
@@ -275,11 +280,11 @@ pub fn getch() InputEvent {
                 // see https://github.com/green9016/video-player-ext/blob/a7b4ffea514ee3a1555dce92784529fff30d5bb8/contrib/win32/caca/caca/driver/win32.c#L252
                 const ke = ir[0].Event.KeyEvent;
                 const uc = ke.uChar.UnicodeChar;
-                //mvprintf(0, ROWS - 1, "ke={} char={} vk={} u16, msc={}          ", .{ ke.bKeyDown, uc, ke.wVirtualKeyCode, ke.wVirtualScanCode });
+                //std.debug.print("{?} {?}\r\n", .{ uc, ke });
                 if (ke.bKeyDown != 0 or (ke.wVirtualKeyCode == w.VK_MENU and uc != 0)) {
                     return switch (uc) {
                         // send backsp, tab, ctrl+enter, enter, esc as keys
-                        0, 8, 9, 10, 13, 27 => .{ .data = .{ .key = ke.wVirtualScanCode }, .keys = ControlKeys.parse(ke.dwControlKeyState) },
+                        0, 8, 9, 10, 13, 27 => .{ .data = .{ .key = ke.wVirtualKeyCode }, .keys = ControlKeys.parse(ke.dwControlKeyState) },
                         else => .{ .data = .{ .char = uc }, .keys = ControlKeys.parse(ke.dwControlKeyState) },
                     };
                 }

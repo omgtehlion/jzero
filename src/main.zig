@@ -11,13 +11,14 @@ const search = @import("./search.zig");
 var gpa: Allocator = undefined;
 
 var ttyMutex: std.Thread.Mutex = .{};
-const cursorMargin = 3;
 // layout of tree view
+const cursorMargin = 3;
 const tvY = 0;
 const tvBottom = 2;
 // tree view state
 var scrollY: u32 = 0;
 var currentY: u32 = 0;
+var scrollXPerNode: std.AutoHashMap(usize, u32) = undefined;
 // ui state
 var ephemeralInfo: ?[]const u8 = null;
 var shortFileName: []const u8 = undefined;
@@ -55,12 +56,16 @@ fn formatKey(node: *tree.Node, buf: []u8) []const u8 {
     };
 }
 
-fn drawPreview(node: *tree.Node, tvXX: u16) void {
+fn drawPreview(node: *tree.Node, tvXX: u16, depthLeft: u16) void {
     switch (node.nType) {
         .literal => {
             printMatched(node.value, tui.stNormal, tvXX);
         },
         .obj => {
+            if (depthLeft == 0) {
+                tui.addnstrto("{…}", tvXX);
+                return;
+            }
             tui.addnstrto("{", tvXX);
             var ch = node.firstChild;
             while (ch != tree.NO_ID) {
@@ -71,7 +76,7 @@ fn drawPreview(node: *tree.Node, tvXX: u16) void {
                 tui.addnstrto(": ", tvXX);
                 if (tui.getcurx() >= tvXX)
                     return;
-                drawPreview(child, tvXX);
+                drawPreview(child, tvXX, depthLeft - 1);
                 if (child.next != tree.NO_ID)
                     tui.addnstrto(", ", tvXX);
                 ch = child.next;
@@ -79,13 +84,17 @@ fn drawPreview(node: *tree.Node, tvXX: u16) void {
             tui.addnstrto("}", tvXX);
         },
         .array => {
+            if (depthLeft == 0) {
+                tui.addnstrto("[…]", tvXX);
+                return;
+            }
             tui.addnstrto("[", tvXX);
             var ch = node.firstChild;
             while (ch != tree.NO_ID) {
                 if (tui.getcurx() >= tvXX)
                     return;
                 const child = tree.at(ch);
-                drawPreview(child, tvXX);
+                drawPreview(child, tvXX, depthLeft - 1);
                 if (child.next != tree.NO_ID)
                     tui.addnstrto(", ", tvXX);
                 ch = child.next;
@@ -147,7 +156,7 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     if (selected) tui.style(tui.stNormal);
     tui.addnstrto(" ", tvXX);
     if (node.collapsed) {
-        drawPreview(node, tvXX);
+        drawPreview(node, tvXX, 4);
     } else {
         switch (node.nType) {
             .literal => {},
@@ -157,7 +166,12 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     }
     if (node.value.len > 0) {
         tui.style(tui.stValue);
-        printMatched(node.value, tui.stValue, tvXX);
+        var scrolled = @min(scrollXPerNode.get(@ptrToInt(node)) orelse 0, node.value.len - 1);
+        if (scrolled > 0)
+            tui.addnstrto("…", tvXX);
+        printMatched(node.value[scrolled..], tui.stValue, tvXX);
+        if (tui.getcurx() >= tvXX)
+            _ = scrollXPerNode.getOrPutValue(@ptrToInt(node), 0) catch {};
     }
 }
 
@@ -310,7 +324,19 @@ pub const Help =
     \\  e            Expand   the focused node and all its siblings
     \\  n            Next match
     \\  N            Previous match
+    \\  .            Scroll value right
+    \\  ,            Scroll value left
 ;
+
+fn showHelp() void {
+    var iter = std.mem.split(u8, Help, "\n");
+    var i: u16 = 0;
+    while (iter.next()) |line| {
+        tui.mvstyleprint(i, 2, tui.stHelp, "{s:<80}\r\n", .{line});
+        i += 1;
+    }
+    _ = tui.getch();
+}
 
 var fileData: ChunkedList(u8, 512 * 1024) = undefined;
 var parser = tree.json.StreamingParser.init();
@@ -372,6 +398,9 @@ pub fn main() !void {
     search.init(gpa);
     defer search.deinit();
 
+    scrollXPerNode = @TypeOf(scrollXPerNode).init(gpa);
+    defer scrollXPerNode.deinit();
+
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
     _ = args.next();
@@ -421,7 +450,7 @@ pub fn main() !void {
     while (true) {
         const PAGE = @max(tui.ROWS, tvY + tvBottom + 1) - tvY - tvBottom - 1;
         var evt = tui.getch();
-        //std.debug.print("{}\r\n", .{evt});
+        std.debug.print("{}\r\n", .{evt});
         // patch some key aliases
         if (evt.keys.alt) {
             evt = switch (evt.data) {
@@ -453,6 +482,7 @@ pub fn main() !void {
                 key.KEY_ESC => break,
                 key.KEY_HOME => currentY = 0,
                 key.KEY_END => currentY = tree.height() - 1,
+                key.KEY_F(1) => showHelp(),
                 else => continue,
             },
             .char => |c| switch (c) {
@@ -490,6 +520,7 @@ pub fn main() !void {
                     tui.showCursor(false);
                     search.prompt = false;
                 },
+                // next / prev match
                 'n', 'N' => {
                     search.nextMatch(c == 'N');
                     if (findMatchedNode()) |node| {
@@ -528,6 +559,13 @@ pub fn main() !void {
                         _ = tree.at(ch).collapse(c == 'c');
                     currentY = node.y();
                     scrollY = @intCast(u32, @max(0, @intCast(i64, scrollY) + currentY - prevCurrentY));
+                },
+                // scroll left / right
+                ',', '.' => if (tree.atY(currentY)) |node| {
+                    if (scrollXPerNode.get(@ptrToInt(node))) |scrollX| {
+                        var newScroll = if (c == ',') scrollX -| 1 else scrollX +| 1;
+                        scrollXPerNode.put(@ptrToInt(node), newScroll) catch {};
+                    }
                 },
                 else => continue,
             },
