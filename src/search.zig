@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 //const Regex = @import("zig-regex").Regex; //https://github.com/tiehuis/zig-regex
 // see also https://github.com/ziglibs/string-searching
 const ChunkedList = @import("./containers.zig").ChunkedList;
+const tree = @import("./tree.zig"); // I do not like this import
 
 //const Span = struct { start: u32, end: u32 };
 //var keyfound: AutoHashMap(u32, Span) = undefined;
@@ -50,8 +51,26 @@ pub fn start(q: []const u8, data: *ChunkedList(u8, 512 * 1024)) !void {
     }
 }
 
-pub fn nextMatch(reverse: bool) void {
-    currentMatchId = if (allMatches.items.len > 0) (if (reverse) currentMatchId + allMatches.items.len - 1 else currentMatchId + 1) % allMatches.items.len else 0;
+pub fn nextMatch(direction: enum { Forward, Back }, node: ?*tree.Node) void {
+    if (node) |n| {
+        const sp = n.startPtr();
+        if (sp != null) {
+            if (currentMatch()) |m| {
+                if (!overlapsNode(n, m)) {
+                    // TODO: search backwards
+                    for (allMatches.items) |match, idx| {
+                        if (@ptrToInt(match.ptr) >= @ptrToInt(sp)) {
+                            currentMatchId = idx;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (allMatches.items.len > 0) {
+        currentMatchId = (if (direction == .Back) currentMatchId + allMatches.items.len - 1 else currentMatchId + 1) % allMatches.items.len;
+    }
 }
 
 pub fn currentMatch() ?[]const u8 {
@@ -64,6 +83,17 @@ pub fn overlaps(a: []const u8, b: []const u8) bool {
     const ap = @ptrToInt(a.ptr);
     const bp = @ptrToInt(b.ptr);
     return ap < bp + b.len and bp < ap + a.len;
+}
+
+pub fn overlapsNode(a: *tree.Node, b: []const u8) bool {
+    switch (a.key) {
+        .str => |s| {
+            if (overlaps(b, s))
+                return true;
+        },
+        else => {},
+    }
+    return overlaps(b, a.value);
 }
 
 pub const Iterator = struct {

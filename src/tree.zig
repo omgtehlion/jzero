@@ -137,6 +137,13 @@ pub const Node = struct {
             _ = parent.collapse(false);
         }
     }
+
+    pub fn startPtr(node: *Node) ?[*]const u8 {
+        return switch (node.key) {
+            .str => |s| s.ptr,
+            .int => if (node.value.len > 0) node.value.ptr else null,
+        };
+    }
 };
 
 var skipCache: struct {

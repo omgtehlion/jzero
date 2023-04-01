@@ -23,8 +23,15 @@ var scrollXPerNode: std.AutoHashMap(usize, u32) = undefined;
 var ephemeralInfo: ?[]const u8 = null;
 var shortFileName: []const u8 = undefined;
 var needToFocusActiveMatch = false;
-// statusbar layout
+var prevSelectedNode: ?*tree.Node = null;
+// loading progress
 var loadingWidth: u16 = 0;
+var lastPct: usize = 0;
+var lastUpdate: i64 = 0;
+// file loading and parsing
+var fileData: ChunkedList(u8, 512 * 1024) = undefined;
+var parser = tree.json.StreamingParser.init();
+var fileLen: ?usize = null;
 
 fn killEphemeral() void {
     if (ephemeralInfo) |ei|
@@ -60,7 +67,7 @@ fn formatKey(node: *tree.Node, buf: []u8) []const u8 {
 fn drawPreview(node: *tree.Node, tvXX: u16, depthLeft: u16) void {
     switch (node.nType) {
         .literal => {
-            printMatched(node.value, tui.stNormal, tvXX);
+            printMatched(node.value, tui.stNormal, false, tvXX);
         },
         .obj => {
             if (depthLeft == 0) {
@@ -73,7 +80,7 @@ fn drawPreview(node: *tree.Node, tvXX: u16, depthLeft: u16) void {
                 if (tui.getcurx() >= tvXX)
                     return;
                 const child = tree.at(ch);
-                printMatched(child.key.str, tui.stNormal, tvXX);
+                printMatched(child.key.str, tui.stNormal, false, tvXX);
                 tui.addnstrto(": ", tvXX);
                 if (tui.getcurx() >= tvXX)
                     return;
@@ -115,16 +122,18 @@ fn segAfter(a: []const u8, b: []const u8) []const u8 {
     return if (a.len > begin) a[begin..a.len] else a[a.len..a.len];
 }
 
-fn printMatched(str: []const u8, styleReturn: u16, tvXX: u16) void {
+fn printMatched(str: []const u8, styleReturn: u16, selected: bool, tvXX: u16) void {
     var matchIter = search.iterator(str);
     var s = str;
     while (matchIter.next()) |match| {
         tui.addnstrto(segBefore(s, match), tvXX);
         var style: u16 = tui.stMatchInactive;
-        if (search.currentMatch()) |cm| {
-            if (match.ptr == cm.ptr) {
-                needToFocusActiveMatch = false;
-                style = tui.stMatchActive;
+        if (selected) {
+            if (search.currentMatch()) |cm| {
+                if (match.ptr == cm.ptr) {
+                    needToFocusActiveMatch = false;
+                    style = tui.stMatchActive;
+                }
             }
         }
         tui.style(style);
@@ -144,7 +153,7 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     tui.style(if (selected) tui.stSelected else tui.stKey);
     switch (node.key) {
         .str => |s| {
-            printMatched(s, if (selected) tui.stSelected else tui.stKey, tvXX);
+            printMatched(s, if (selected) tui.stSelected else tui.stKey, selected, tvXX);
         },
         .int => |i| {
             if (node.level > 0) {
@@ -191,7 +200,7 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
         }
         if (scrolled > 0)
             tui.addnstrto("…", tvXX);
-        printMatched(node.value[scrolled..], tui.stValue, tvXX);
+        printMatched(node.value[scrolled..], tui.stValue, selected, tvXX);
         if (tui.getcurx() >= tvXX)
             _ = scrollXPerNode.getOrPutValue(@ptrToInt(node), 0) catch {};
     }
@@ -252,13 +261,14 @@ fn redraw() void {
             tui.mvstyleprint(tui.ROWS - 1, 0, tui.stNormal, "{s}", .{ei});
     }
 
+    if (selectedNode != prevSelectedNode)
+        prevSelectedNode = selectedNode;
+
     tui.style(tui.stNormal);
     tui.restoreCursor();
     tui.refresh();
 }
 
-var lastPct: usize = 0;
-var lastUpdate: i64 = 0;
 fn drawLoadingProgress() void {
     const w: u16 = 21;
     loadingWidth = w;
@@ -299,7 +309,7 @@ fn drawLoadingFinish(elapsedMs: i64) void {
     tui.refresh();
 }
 
-pub fn searchHints(allocator: Allocator, buf: []const u8) !?[]const u8 {
+fn searchHints(allocator: Allocator, buf: []const u8) !?[]const u8 {
     _ = allocator;
     _ = buf;
     //re = Regex.compile(allocator, buf) catch return null;
@@ -315,27 +325,15 @@ pub fn searchHints(allocator: Allocator, buf: []const u8) !?[]const u8 {
 fn findMatchedNode() ?*tree.Node {
     if (search.currentMatch()) |match| {
         var iter = tree.iterator();
-        while (iter.next()) |node| {
-            switch (node.key) {
-                .str => |s| {
-                    if (search.overlaps(match, s))
-                        return node;
-                },
-                else => {},
-            }
-            if (search.overlaps(match, node.value))
+        while (iter.next()) |node|
+            if (search.overlapsNode(node, match))
                 return node;
-        }
     }
     return null;
 }
 
-fn key_ctrl(comptime c: u8) u8 {
-    return c - '`';
-}
-
 //⇧shift ⌃ctrl ⎇alt ⌥option ⌘command
-pub const Help =
+const Help =
     \\  H, ⎇←        Focus the parent of the focused node, even if it is an
     \\               expanded object or array
     \\  J, ⎇↓        Move to the focused node's next     sibling
@@ -362,10 +360,6 @@ fn showHelp() void {
     }
     _ = tui.getch();
 }
-
-var fileData: ChunkedList(u8, 512 * 1024) = undefined;
-var parser = tree.json.StreamingParser.init();
-var fileLen: ?usize = null;
 
 fn readAndParseChunk(file: std.fs.File) !bool {
     var slice = try fileData.getSlice(1024);
@@ -412,6 +406,10 @@ fn loadingThread(file: std.fs.File) !void {
     while (try readAndParseChunk(file))
         drawLoadingProgress();
     drawLoadingFinish(std.time.milliTimestamp() - start);
+}
+
+fn key_ctrl(comptime c: u8) u8 {
+    return c - '`';
 }
 
 pub fn main() !void {
@@ -529,7 +527,7 @@ pub fn main() !void {
                     if (try ln.linenoise("/")) |input| {
                         defer ln.allocator.free(input);
                         if (input.len == 0) {
-                            search.nextMatch(false);
+                            search.nextMatch(.Forward, prevSelectedNode);
                         } else {
                             try ln.history.add(input);
                             try search.start(input, &fileData);
@@ -548,7 +546,7 @@ pub fn main() !void {
                 },
                 // next / prev match
                 'n', 'N' => {
-                    search.nextMatch(c == 'N');
+                    search.nextMatch(if (c == 'N') .Back else .Forward, prevSelectedNode);
                     if (findMatchedNode()) |node| {
                         node.expandParentToThis();
                         needToFocusActiveMatch = true;
