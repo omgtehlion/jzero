@@ -22,6 +22,7 @@ var scrollXPerNode: std.AutoHashMap(usize, u32) = undefined;
 // ui state
 var ephemeralInfo: ?[]const u8 = null;
 var shortFileName: []const u8 = undefined;
+var needToFocusActiveMatch = false;
 // statusbar layout
 var loadingWidth: u16 = 0;
 
@@ -119,7 +120,14 @@ fn printMatched(str: []const u8, styleReturn: u16, tvXX: u16) void {
     var s = str;
     while (matchIter.next()) |match| {
         tui.addnstrto(segBefore(s, match), tvXX);
-        tui.style(if (search.currentMatch()) |cm| if (match.ptr == cm.ptr) tui.stMatchActive else tui.stMatchInactive else tui.stMatchInactive);
+        var style: u16 = tui.stMatchInactive;
+        if (search.currentMatch()) |cm| {
+            if (match.ptr == cm.ptr) {
+                needToFocusActiveMatch = false;
+                style = tui.stMatchActive;
+            }
+        }
+        tui.style(style);
         tui.addnstrto(match, tvXX);
         tui.style(styleReturn);
         s = segAfter(str, match);
@@ -167,6 +175,20 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     if (node.value.len > 0) {
         tui.style(tui.stValue);
         var scrolled = @min(scrollXPerNode.get(@ptrToInt(node)) orelse 0, node.value.len - 1);
+        if (needToFocusActiveMatch) {
+            if (search.currentMatch()) |cm| {
+                if (search.overlaps(cm, node.value)) {
+                    // TODO: count real characters
+                    const matchStart = @ptrToInt(cm.ptr) - @ptrToInt(node.value.ptr);
+                    const matchEnd = matchStart + cm.len;
+                    const offscreen = @intCast(isize, matchEnd) + tui.getcurx() - tvXX;
+                    if (offscreen >= 0)
+                        scrolled = @intCast(usize, offscreen) + 1;
+                    if (matchStart < scrolled)
+                        scrolled = matchStart;
+                }
+            }
+        }
         if (scrolled > 0)
             tui.addnstrto("…", tvXX);
         printMatched(node.value[scrolled..], tui.stValue, tvXX);
@@ -314,18 +336,21 @@ fn key_ctrl(comptime c: u8) u8 {
 
 //⇧shift ⌃ctrl ⎇alt ⌥option ⌘command
 pub const Help =
-    \\  ^e           Scroll down one line
-    \\  ^y           Scroll up   one line
     \\  H, ⎇←        Focus the parent of the focused node, even if it is an
     \\               expanded object or array
     \\  J, ⎇↓        Move to the focused node's next     sibling
     \\  K, ⎇↑        Move to the focused node's previous sibling
     \\  c            Collapse the focused node and all its siblings
     \\  e            Expand   the focused node and all its siblings
-    \\  n            Next match
-    \\  N            Previous match
+    \\
+    \\  ^e           Scroll down one line
+    \\  ^y           Scroll up   one line
     \\  .            Scroll value right
     \\  ,            Scroll value left
+    \\
+    \\  /            Start a search
+    \\  n            Next match
+    \\  N            Previous match
 ;
 
 fn showHelp() void {
@@ -511,6 +536,7 @@ pub fn main() !void {
                         }
                         if (findMatchedNode()) |node| {
                             node.expandParentToThis();
+                            needToFocusActiveMatch = true;
                             currentY = node.y();
                         } else {
                             ephemeralInfo = try gpa.dupe(u8, "Not found");
@@ -525,6 +551,7 @@ pub fn main() !void {
                     search.nextMatch(c == 'N');
                     if (findMatchedNode()) |node| {
                         node.expandParentToThis();
+                        needToFocusActiveMatch = true;
                         currentY = node.y();
                     }
                 },
