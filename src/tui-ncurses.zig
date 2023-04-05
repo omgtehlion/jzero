@@ -28,9 +28,13 @@ pub const stScrollBk = 7;
 // other
 pub const stStatBar = 8;
 pub const stSearch = 9;
-pub const stFound = 10;
+pub const stMatchActive = 10;
+pub const stMatchInactive = 11;
+pub const stLoading = 12;
+pub const stLoaded = 13;
+pub const stHelp = 14;
 
-var styles: [11]c_int = undefined;
+var styles: [stHelp + 1]c_int = undefined;
 
 pub var input: std.fs.File.Handle = undefined;
 pub var output: std.fs.File.Handle = undefined;
@@ -75,9 +79,14 @@ pub fn init() !void {
     initStyle(stWilderness, c.COLOR_BLUE, c.COLOR_BLACK, 0);
     initStyle(stScroll, @intCast(c_short, c.COLOR_WHITE | BRIGHT), c.COLOR_BLACK, 0);
     initStyle(stScrollBk, if (c.COLORS > 8) c.COLOR_WHITE else c.COLOR_BLACK, c.COLOR_BLACK, 0);
+    //
     initStyle(stStatBar, c.COLOR_BLACK, c.COLOR_WHITE, 0);
     initStyle(stSearch, c.COLOR_WHITE, c.COLOR_BLACK, 0);
-    initStyle(stFound, c.COLOR_MAGENTA, c.COLOR_WHITE, 0);
+    initStyle(stMatchActive, c.COLOR_RED, c.COLOR_WHITE, 0);
+    initStyle(stMatchInactive, c.COLOR_BLACK, c.COLOR_YELLOW, 0);
+    initStyle(stLoading, c.COLOR_WHITE, c.COLOR_BLUE, 0);
+    initStyle(stLoaded, c.COLOR_WHITE, @intCast(c_short, c.COLOR_BLUE | BRIGHT), 0);
+    initStyle(stHelp, @intCast(c_short, c.COLOR_YELLOW | BRIGHT), c.COLOR_WHITE, 0);
 }
 
 pub fn deinit() void {
@@ -122,7 +131,7 @@ pub const ControlKeys = struct {
 
 pub const InputEvent = struct {
     data: union(enum) { char: u32, key: u16, resize: void, mouse: *MouseInfo },
-    keys: ControlKeys,
+    keys: ControlKeys = .{},
 };
 
 pub fn getch() InputEvent {

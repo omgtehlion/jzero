@@ -3,8 +3,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Linenoise = @import("linenoise").Linenoise;
 const tree = @import("./tree.zig");
-const tui = @import("./tui-win32.zig");
-//const tui = if (@import("builtin").os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
+//const tui = @import("./tui-win32.zig");
+const tui = if (@import("builtin").os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
 const ChunkedList = @import("./containers.zig").ChunkedList;
 const search = @import("./search.zig");
 
@@ -355,9 +355,10 @@ fn showHelp() void {
     var iter = std.mem.split(u8, Help, "\n");
     var i: u16 = 0;
     while (iter.next()) |line| {
-        tui.mvstyleprint(i, 2, tui.stHelp, "{s:<80}\r\n", .{line});
+        tui.mvstyleprint(i, 2, tui.stHelp, "{s:<80}", .{line});
         i += 1;
     }
+    tui.refresh();
     _ = tui.getch();
 }
 
@@ -473,7 +474,7 @@ pub fn main() !void {
     while (true) {
         const PAGE = @max(tui.ROWS, tvY + tvBottom + 1) - tvY - tvBottom - 1;
         var evt = tui.getch();
-        std.debug.print("{}\r\n", .{evt});
+        //std.debug.print("{}\r\n", .{evt});
         // patch some key aliases
         if (evt.keys.alt) {
             evt = switch (evt.data) {
