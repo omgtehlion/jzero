@@ -435,7 +435,7 @@ pub fn main() !void {
         };
         var quoted = try gpa.alloc(u8, fileName.len + 2);
         quoted[0] = '"';
-        std.mem.copyForwards(quoted[1..], fileName);
+        std.mem.copyForwards(u8, quoted[1..], fileName);
         quoted[quoted.len - 1] = '"';
         ephemeralInfo = quoted;
         shortFileName = std.fs.path.basename(fileName);
@@ -463,8 +463,8 @@ pub fn main() !void {
     }
     redraw();
 
-    var ln = Linenoise.init(gpa); //initWithHandles(gpa, tui.input, tui.output);
-    //ln.print_newline = false;
+    var ln = Linenoise.initWithHandles(gpa, tui.input, tui.output);
+    ln.print_newline = false;
     defer ln.deinit();
     //ln.history.load("history.txt") catch {}; defer ln.history.save("history.txt") catch {};
     ln.hints_callback = searchHints;

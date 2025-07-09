@@ -37,8 +37,8 @@
     // internet connectivity.
     .dependencies = .{
         .linenoise = .{
-            .url = "git+https://github.com/joachimschmidt557/linenoize.git#905cbfc2c0162d15991ed6dbc230cece1304fe88",
-            .hash = "linenoize-0.1.1-J7HK8OjbAACwgL_w7iuG2SKfnU7jBB6iU2JnAD_GOMpM",
+            .url = "git+https://github.com/omgtehlion/linenoize-win32.git#1e72d6fb67125ff39c289c418b62546e6c678a65",
+            .hash = "linenoize-0.1.1-J7HK8NLdAAASmFnaUMlmMOaPGnkwn9nrhRnHnUl-yyZK",
         },
         .wcwidth = .{
             .url = "git+https://github.com/joachimschmidt557/zig-wcwidth.git#4f5c8efa838da57c9e1b14506138936964835999",
