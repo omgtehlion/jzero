@@ -58,8 +58,8 @@ pub fn nextMatch(direction: enum { Forward, Back }, node: ?*tree.Node) void {
             if (currentMatch()) |m| {
                 if (!overlapsNode(n, m)) {
                     // TODO: search backwards
-                    for (allMatches.items) |match, idx| {
-                        if (@ptrToInt(match.ptr) >= @ptrToInt(sp)) {
+                    for (allMatches.items, 0..) |match, idx| {
+                        if (@intFromPtr(match.ptr) >= @intFromPtr(sp)) {
                             currentMatchId = idx;
                             return;
                         }
@@ -80,8 +80,8 @@ pub fn currentMatch() ?[]const u8 {
 }
 
 pub fn overlaps(a: []const u8, b: []const u8) bool {
-    const ap = @ptrToInt(a.ptr);
-    const bp = @ptrToInt(b.ptr);
+    const ap = @intFromPtr(a.ptr);
+    const bp = @intFromPtr(b.ptr);
     return ap < bp + b.len and bp < ap + a.len;
 }
 
@@ -102,7 +102,7 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) ?[]const u8 {
         if (it.index >= allMatches.items.len)
             return null;
-        var match = allMatches.items[it.index];
+        const match = allMatches.items[it.index];
         it.index += 1;
         if (!overlaps(match, it.str)) {
             it.index = allMatches.items.len;
@@ -117,7 +117,7 @@ pub const Iterator = struct {
 };
 
 pub fn iterator(s: []const u8) Iterator {
-    for (allMatches.items) |match, idx|
+    for (allMatches.items, 0..) |match, idx|
         if (overlaps(s, match))
             return .{ .index = idx, .str = s };
     return .{ .index = allMatches.items.len, .str = s };
@@ -125,8 +125,8 @@ pub fn iterator(s: []const u8) Iterator {
 
 pub fn matches(s: []const u8) ?[3][]const u8 {
     for (allMatches.items) |match| {
-        const sp = @ptrToInt(s.ptr);
-        const mp = @ptrToInt(match.ptr);
+        const sp = @intFromPtr(s.ptr);
+        const mp = @intFromPtr(match.ptr);
         if (overlaps(s, match)) {
             const begin = mp -| sp;
             const end = s.len - ((sp + s.len) -| (mp + match.len));

@@ -16,7 +16,7 @@ var tree = std.SegmentedList(Node, 1 << 10){}; // NOTE: not too large, this eats
 pub const StrOrInt = union(enum) { str: []const u8, int: i32 };
 
 pub fn len() u32 {
-    return @intCast(u32, tree.len);
+    return @intCast(tree.len);
 }
 
 pub fn at(i: u32) *Node {
@@ -152,8 +152,8 @@ var skipCache: struct {
     ys: [cacheSize + 1]u32 = .{math.maxInt(u32)} ** (cacheSize + 1),
     ids: [cacheSize + 1]ID_T = .{NO_ID} ** (cacheSize + 1),
 
-    fn cut(arr: anytype, i: u32) void {
-        std.mem.copy(u32, arr[i..], arr[i + 1 ..]);
+    fn cut(comptime T: type, arr: []T, i: u32) void {
+        std.mem.copyBackwards(T, arr[i..], arr[i + 1 ..]);
     }
 
     pub fn put(self: *Self, y: u32, id: ID_T) void {
@@ -164,8 +164,8 @@ var skipCache: struct {
             if (self.ys[i] == y)
                 return;
             if (self.ids[i] != NO_ID and i != 0) {
-                const deltaLeft = math.absInt(y - @divTrunc(h * i, cacheSize)) catch unreachable;
-                const deltaRight = math.absInt(y - @divTrunc(h * (i + 1), cacheSize)) catch unreachable;
+                const deltaLeft = @abs(y - @divTrunc(h * i, cacheSize));
+                const deltaRight = @abs(y - @divTrunc(h * (i + 1), cacheSize));
                 if (deltaLeft < deltaRight)
                     i -= 1;
             }
@@ -182,18 +182,18 @@ var skipCache: struct {
                 var penalty: i64 = 0;
                 var j: u32 = 0;
                 while (j < i) : (j += 1)
-                    penalty += math.absInt(self.ys[j] - @divTrunc(h * (j + 1), cacheSize)) catch unreachable;
+                    penalty += @intCast(@abs(self.ys[j] - @divTrunc(h * (j + 1), cacheSize)));
                 j += 1;
                 while (j <= cacheSize) : (j += 1)
-                    penalty += math.absInt(self.ys[j] - @divTrunc(h * j, cacheSize)) catch unreachable;
+                    penalty += @intCast(@abs(self.ys[j] - @divTrunc(h * j, cacheSize)));
                 if (penalty <= smallestPenalty) {
                     smallestPenalty = penalty;
                     deleteIndex = i;
                 }
             }
             if (deleteIndex < cacheSize) {
-                cut(&self.ys, deleteIndex);
-                cut(&self.ids, deleteIndex);
+                cut(u32, &self.ys, deleteIndex);
+                cut(ID_T, &self.ids, deleteIndex);
             }
         }
     }
@@ -246,10 +246,10 @@ pub var loader: struct {
                     _ = try self.stateStack.pop();
                     return;
                 }
-                const tn = @intCast(ID_T, tree.len);
+                const tn: ID_T = @intCast(tree.len);
                 const node = try tree.addOne(self.allocator); // this pointer should be stable
                 const key = if (state.mode == .objValue) StrOrInt{ .str = self.key.? } else StrOrInt{ .int = state.nChildren };
-                node.* = .{ .level = @intCast(u8, self.stateStack.len - 1), .parent = state.parent, .key = key };
+                node.* = .{ .level = @intCast(self.stateStack.len - 1), .parent = state.parent, .key = key };
                 if (state.prev != NO_ID) {
                     tree.at(state.prev).next = tn;
                 } else if (state.parent != NO_ID) {

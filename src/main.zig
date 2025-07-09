@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const Linenoise = @import("linenoise").Linenoise;
 const tree = @import("./tree.zig");
 //const tui = @import("./tui-win32.zig");
-const tui = if (@import("builtin").os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
+const tui = if (@import("builtin").target.os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
 const ChunkedList = @import("./containers.zig").ChunkedList;
 const search = @import("./search.zig");
 
@@ -113,12 +113,12 @@ fn drawPreview(node: *tree.Node, tvXX: u16, depthLeft: u16) void {
 }
 
 fn segBefore(a: []const u8, b: []const u8) []const u8 {
-    const lenBefore = @ptrToInt(b.ptr) -| @ptrToInt(a.ptr);
+    const lenBefore = @intFromPtr(b.ptr) -| @intFromPtr(a.ptr);
     return a[0..lenBefore];
 }
 
 fn segAfter(a: []const u8, b: []const u8) []const u8 {
-    const begin = @ptrToInt(b.ptr) + b.len -| @ptrToInt(a.ptr);
+    const begin = @intFromPtr(b.ptr) + b.len -| @intFromPtr(a.ptr);
     return if (a.len > begin) a[begin..a.len] else a[a.len..a.len];
 }
 
@@ -148,7 +148,7 @@ fn printMatched(str: []const u8, styleReturn: u16, selected: bool, tvXX: u16) vo
 fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     tui.mvhline(y, 0, ' ', @min((node.level -| 1) * 2, tvXX), tui.stNormal);
     tui.style(if (selected) tui.stSelected else tui.stNormal);
-    var arrow = if (node.firstChild != tree.NO_ID) (if (node.collapsed) "► " else "▼ ") else "  "; // ▸▾
+    const arrow = if (node.firstChild != tree.NO_ID) (if (node.collapsed) "► " else "▼ ") else "  "; // ▸▾
     tui.addnstr(arrow);
     tui.style(if (selected) tui.stSelected else tui.stKey);
     switch (node.key) {
@@ -183,16 +183,16 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
     }
     if (node.value.len > 0) {
         tui.style(tui.stValue);
-        var scrolled = @min(scrollXPerNode.get(@ptrToInt(node)) orelse 0, node.value.len - 1);
+        var scrolled = @min(@as(usize, scrollXPerNode.get(@intFromPtr(node)) orelse 0), node.value.len - 1);
         if (needToFocusActiveMatch) {
             if (search.currentMatch()) |cm| {
                 if (search.overlaps(cm, node.value)) {
                     // TODO: count real characters
-                    const matchStart = @ptrToInt(cm.ptr) - @ptrToInt(node.value.ptr);
+                    const matchStart = @intFromPtr(cm.ptr) - @intFromPtr(node.value.ptr);
                     const matchEnd = matchStart + cm.len;
-                    const offscreen = @intCast(isize, matchEnd) + tui.getcurx() - tvXX;
+                    const offscreen = @as(isize, @intCast(matchEnd)) + tui.getcurx() - tvXX;
                     if (offscreen >= 0)
-                        scrolled = @intCast(usize, offscreen) + 1;
+                        scrolled = @as(usize, @intCast(offscreen)) + 1;
                     if (matchStart < scrolled)
                         scrolled = matchStart;
                 }
@@ -202,7 +202,7 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
             tui.addnstrto("…", tvXX);
         printMatched(node.value[scrolled..], tui.stValue, selected, tvXX);
         if (tui.getcurx() >= tvXX)
-            _ = scrollXPerNode.getOrPutValue(@ptrToInt(node), 0) catch {};
+            _ = scrollXPerNode.getOrPutValue(@intFromPtr(node), 0) catch {};
     }
 }
 
@@ -221,8 +221,8 @@ fn redraw() void {
     const page = tvYY - tvY;
     const scrollVisible = height > page;
     const tvXX = tui.COLS - 2; //if (scrollVisible) tui.COLS - 1 else tui.COLS;
-    const barH = @min(@max(1, (@intCast(u64, page) * (page) + height / 2) / height), page);
-    const barY = if (scrollVisible) (@intCast(u64, scrollY) * (page - barH) + (height - page) / 2) / (height - page) else 0;
+    const barH = @min(@max(1, (@as(u64, @intCast(page)) * (page) + height / 2) / height), page);
+    const barY = if (scrollVisible) (@as(u64, @intCast(scrollY)) * (page - barH) + (height - page) / 2) / (height - page) else 0;
     const barYY = @min(barY + barH, page);
 
     var y: u16 = tvY;
@@ -253,7 +253,7 @@ fn redraw() void {
     tui.move(tui.ROWS - 2, 0);
     if (selectedNode) |node|
         drawBreadcrumbs(node, tui.COLS);
-    tui.mvstyleprint(tui.ROWS - 2, tui.COLS - @intCast(u16, std.unicode.utf8CountCodepoints(shortFileName) catch 0), tui.stStatBar, "{s}", .{shortFileName});
+    tui.mvstyleprint(tui.ROWS - 2, tui.COLS - @as(u16, @intCast(std.unicode.utf8CountCodepoints(shortFileName) catch 0)), tui.stStatBar, "{s}", .{shortFileName});
 
     if (!search.prompt) {
         tui.mvhline(tui.ROWS - 1, 0, ' ', tui.COLS - loadingWidth, tui.stNormal);
@@ -277,7 +277,7 @@ fn drawLoadingProgress() void {
     if (fileLen) |flen| {
         const pct = @max(1, @min(fileData.len * 100 / flen, 99));
         if (lastPct != pct) {
-            const filled = @intCast(u16, @max(1, w * pct / 100));
+            const filled = @as(u16, @intCast(@max(1, w * pct / 100)));
             var msg: [w]u8 = [_]u8{' '} ** w;
             _ = std.fmt.bufPrint(&msg, "     Loading {}%", .{pct}) catch {}; // supports only ASCII
             tui.mvstyleprint(tui.ROWS - 1, tui.COLS - w, tui.stLoaded, "{s}", .{msg[0..filled]});
@@ -303,7 +303,7 @@ fn drawLoadingFinish(elapsedMs: i64) void {
     var buff: [maxW]u8 = [_]u8{' '} ** maxW;
     const msg = std.fmt.bufPrint(&buff, "Loaded {}kB, {} nodes in {}ms", .{ fileData.len / 1024, tree.len(), elapsedMs }) catch "Done";
     const codepoints = std.unicode.utf8CountCodepoints(msg) catch msg.len;
-    const width = @intCast(u16, if (codepoints > tui.COLS) tui.COLS else codepoints);
+    const width = @as(u16, @intCast(if (codepoints > tui.COLS) tui.COLS else codepoints));
     loadingWidth = width;
     tui.mvstyleprint(tui.ROWS - 1, tui.COLS - width, tui.stNormal, "{s}", .{msg});
     tui.refresh();
@@ -352,7 +352,7 @@ const Help =
 ;
 
 fn showHelp() void {
-    var iter = std.mem.split(u8, Help, "\n");
+    var iter = std.mem.splitScalar(u8, Help, '\n');
     var i: u16 = 0;
     while (iter.next()) |line| {
         tui.mvstyleprint(i, 2, tui.stHelp, "{s:<80}", .{line});
@@ -390,7 +390,7 @@ fn readAndParseChunk(file: std.fs.File) !bool {
     if (unread > 0) {
         try fileData.commit(read - unread);
         var newSlice = try fileData.getSlice(unread + 1); // this will force new chunk allocation
-        std.mem.copy(u8, newSlice.fresh(), slice.fresh()[(read - unread)..]);
+        std.mem.copyForwards(u8, newSlice.fresh(), slice.fresh()[(read - unread)..]);
         try fileData.commit(unread);
     } else {
         try fileData.commit(read);
@@ -403,7 +403,7 @@ fn readAndParseChunk(file: std.fs.File) !bool {
 }
 
 fn loadingThread(file: std.fs.File) !void {
-    var start = std.time.milliTimestamp();
+    const start = std.time.milliTimestamp();
     while (try readAndParseChunk(file))
         drawLoadingProgress();
     drawLoadingFinish(std.time.milliTimestamp() - start);
@@ -435,12 +435,12 @@ pub fn main() !void {
         };
         var quoted = try gpa.alloc(u8, fileName.len + 2);
         quoted[0] = '"';
-        std.mem.copy(u8, quoted[1..], fileName);
+        std.mem.copyForwards(quoted[1..], fileName);
         quoted[quoted.len - 1] = '"';
         ephemeralInfo = quoted;
         shortFileName = std.fs.path.basename(fileName);
         const file = try std.fs.cwd().openFile(fileName, .{});
-        fileLen = @intCast(usize, try file.getEndPos());
+        fileLen = @intCast(try file.getEndPos());
         break :_ file;
     } else _: {
         ephemeralInfo = try gpa.dupe(u8, "Reading from standard input");
@@ -463,14 +463,14 @@ pub fn main() !void {
     }
     redraw();
 
-    var ln = Linenoise.initWithHandles(gpa, tui.input, tui.output);
-    ln.print_newline = false;
+    var ln = Linenoise.init(gpa); //initWithHandles(gpa, tui.input, tui.output);
+    //ln.print_newline = false;
     defer ln.deinit();
     //ln.history.load("history.txt") catch {}; defer ln.history.save("history.txt") catch {};
     ln.hints_callback = searchHints;
 
     const key = tui.key;
-    var lastButtons: u16 = 0;
+    var lastButtons: u32 = 0;
     while (true) {
         const PAGE = @max(tui.ROWS, tvY + tvBottom + 1) - tvY - tvBottom - 1;
         var evt = tui.getch();
@@ -501,7 +501,7 @@ pub fn main() !void {
         var lineDelta: i64 = 0;
         switch (evt.data) {
             .key => |k| switch (k) {
-                key.KEY_PPAGE => lineDelta = -@intCast(i32, PAGE),
+                key.KEY_PPAGE => lineDelta = -@as(i32, @intCast(PAGE)),
                 key.KEY_NPAGE => lineDelta = PAGE,
                 key.KEY_ESC => break,
                 key.KEY_HOME => currentY = 0,
@@ -584,13 +584,13 @@ pub fn main() !void {
                     while (ch != tree.NO_ID) : (ch = tree.at(ch).next)
                         _ = tree.at(ch).collapse(c == 'c');
                     currentY = node.y();
-                    scrollY = @intCast(u32, @max(0, @intCast(i64, scrollY) + currentY - prevCurrentY));
+                    scrollY = @intCast(@max(0, @as(i64, @intCast(scrollY)) + currentY - prevCurrentY));
                 },
                 // scroll left / right
                 ',', '.' => if (tree.atY(currentY)) |node| {
-                    if (scrollXPerNode.get(@ptrToInt(node))) |scrollX| {
-                        var newScroll = if (c == ',') scrollX -| 1 else scrollX +| 1;
-                        scrollXPerNode.put(@ptrToInt(node), newScroll) catch {};
+                    if (scrollXPerNode.get(@intFromPtr(node))) |scrollX| {
+                        const newScroll = if (c == ',') scrollX -| 1 else scrollX +| 1;
+                        scrollXPerNode.put(@intFromPtr(node), newScroll) catch {};
                     }
                 },
                 else => continue,
@@ -612,7 +612,7 @@ pub fn main() !void {
             },
             .resize => {},
         }
-        currentY = @intCast(u32, @max(0, @min(lineDelta + currentY, tree.height() - 1)));
+        currentY = @intCast(@max(0, @min(lineDelta + currentY, tree.height() - 1)));
         scrollY = if (currentY < scrollY + cursorMargin) currentY -| cursorMargin else if (currentY > scrollY + (PAGE - cursorMargin)) currentY - (PAGE - cursorMargin) else scrollY;
         redraw();
     }

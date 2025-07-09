@@ -27,7 +27,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/zig-out/bin/jzero.exe",
             // awk '{print $0; system("sleep .1");}' "test data\data2.json" > "test data"\slow.json
-            "args": ["../js0/test data/10k.json", "run", "print \"Hello, world!\""],
+            "args": ["D:/json/intrinsic.json"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

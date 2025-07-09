@@ -16,7 +16,6 @@ const w = struct {
     pub const ENABLE_MOUSE_INPUT = @as(c_int, 0x10);
     pub const ENABLE_WRAP_AT_EOL_OUTPUT = @as(c_int, 0x2);
     pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = @as(c_int, 0x4);
-    pub const DISABLE_NEWLINE_AUTO_RETURN = @as(c_int, 0x8);
     pub const ENABLE_QUICK_EDIT_MODE = @as(c_int, 0x40);
     pub const ENABLE_EXTENDED_FLAGS = @as(c_int, 0x80);
     pub const CP_UTF8 = @as(c_int, 65001);
@@ -72,7 +71,6 @@ const k32 = struct {
     pub extern "kernel32" fn CreateConsoleScreenBuffer(dwDesiredAccess: w.DWORD, dwShareMode: w.DWORD, lpSecurityAttributes: ?*anyopaque, dwFlags: w.DWORD, lpScreenBufferData: ?w.LPVOID) callconv(w.WINAPI) w.HANDLE;
     pub extern "kernel32" fn SetConsoleScreenBufferSize(hConsoleOutput: w.HANDLE, dwSize: w.COORD) callconv(w.WINAPI) w.BOOL;
     pub extern "kernel32" fn SetConsoleActiveScreenBuffer(hConsoleOutput: w.HANDLE) callconv(w.WINAPI) w.BOOL;
-    pub extern "kernel32" fn SetConsoleMode(hConsoleHandle: w.HANDLE, dwMode: w.DWORD) callconv(w.WINAPI) w.BOOL;
     pub extern "kernel32" fn SetConsoleCP(wCodePageID: w.UINT) callconv(w.WINAPI) w.BOOL;
     pub extern "kernel32" fn ReadConsoleInputW(hConsoleInput: w.HANDLE, lpBuffer: [*]w.INPUT_RECORD, nLength: w.DWORD, lpNumberOfEventsRead: ?*w.DWORD) callconv(w.WINAPI) w.BOOL;
     pub extern "kernel32" fn GetConsoleWindow() callconv(w.WINAPI) w.HWND;
@@ -80,7 +78,8 @@ const k32 = struct {
 };
 
 const user32 = struct {
-    pub usingnamespace std.os.windows.user32;
+    pub const WM_GETICON = 0x007F;
+    pub const WM_SETICON = 0x0080;
     pub extern "user32" fn LoadIconW(hInstance: w.HMODULE, lpIconName: [*:0]const u16) callconv(w.WINAPI) w.LPARAM;
 };
 
@@ -136,11 +135,11 @@ var lastCursorX: u16 = 0;
 
 pub fn init() !void {
     // fun part: set console window icon
-    var ico = user32.LoadIconW(k32.GetModuleHandleW(null).?, comptime toWtf16("MAINICON"));
+    const ico = user32.LoadIconW(k32.GetModuleHandleW(null).?, comptime toWtf16("MAINICON"));
     // k32.SetConsoleIcon(ico) is deprecated, use messages
     const wnd = k32.GetConsoleWindow();
-    _ = k32.SendMessageW(wnd, user32.WM_GETICON, w.ICON_SMALL, @intCast(isize, @ptrToInt(&prevIcon[0])));
-    _ = k32.SendMessageW(wnd, user32.WM_GETICON, w.ICON_BIG, @intCast(isize, @ptrToInt(&prevIcon[1])));
+    _ = k32.SendMessageW(wnd, user32.WM_GETICON, w.ICON_SMALL, @intCast(@intFromPtr(&prevIcon[0])));
+    _ = k32.SendMessageW(wnd, user32.WM_GETICON, w.ICON_BIG, @intCast(@intFromPtr(&prevIcon[1])));
     _ = k32.SendMessageW(wnd, user32.WM_SETICON, w.ICON_SMALL, ico); // ICON_SMALL
     _ = k32.SendMessageW(wnd, user32.WM_SETICON, w.ICON_BIG, ico); // ICON_BIG
 
@@ -160,12 +159,12 @@ pub fn init() !void {
         consoleMode |= w.ENABLE_MOUSE_INPUT;
         //consoleMode &= ~ENABLE_PROCESSED_INPUT; // Report CTRL+C and SHIFT+Arrow events.
         consoleMode |= w.ENABLE_EXTENDED_FLAGS; // Disable the Quick Edit mode,
-        consoleMode &= @bitCast(w.DWORD, ~w.ENABLE_QUICK_EDIT_MODE); // which inhibits the mouse.
+        consoleMode &= @bitCast(~w.ENABLE_QUICK_EDIT_MODE); // which inhibits the mouse.
         _ = k32.SetConsoleMode(input, consoleMode);
     }
     {
         _ = k32.GetConsoleMode(output, &prevOutputMode);
-        var consoleMode = prevOutputMode & @bitCast(w.DWORD, ~w.ENABLE_WRAP_AT_EOL_OUTPUT); // Avoid scrolling when reaching end of line.
+        var consoleMode = prevOutputMode & @as(w.DWORD, @bitCast(~w.ENABLE_WRAP_AT_EOL_OUTPUT)); // Avoid scrolling when reaching end of line.
         //_ = k32.SetConsoleMode(output, consoleMode);
         // Try enabling VT sequences.
         consoleMode |= w.DISABLE_NEWLINE_AUTO_RETURN; // Do not do CR on LF.
@@ -199,24 +198,24 @@ pub fn saveCursor() void {
     _ = k32.GetConsoleCursorInfo(output, &savedCursor);
     _ = k32.GetConsoleScreenBufferInfo(output, &csbi);
     savedCursorPos = csbi.dwCursorPosition;
-    lastCursorX = @intCast(u16, savedCursorPos.X);
+    lastCursorX = @intCast(savedCursorPos.X);
 }
 
 pub fn restoreCursor() void {
     _ = k32.SetConsoleCursorPosition(output, savedCursorPos);
     _ = k32.SetConsoleCursorInfo(output, &savedCursor);
-    lastCursorX = @intCast(u16, savedCursorPos.X);
+    lastCursorX = @intCast(savedCursorPos.X);
 }
 
 pub fn move(y: u16, x: u16) void {
-    _ = k32.SetConsoleCursorPosition(output, .{ .X = @intCast(i16, x), .Y = @intCast(i16, y) });
+    _ = k32.SetConsoleCursorPosition(output, .{ .X = @intCast(x), .Y = @intCast(y) });
     lastCursorX = x;
 }
 
 pub fn addnstr(text: []const u8) void {
     var ignored: w.DWORD = 0;
-    _ = k32.WriteConsoleA(output, text.ptr, @intCast(w.DWORD, text.len), &ignored, null);
-    lastCursorX += @intCast(u16, unicode.utf8CountCodepoints(text) catch 0);
+    _ = k32.WriteConsoleA(output, text.ptr, @as(w.DWORD, @intCast(text.len)), &ignored, null);
+    lastCursorX += @intCast(unicode.utf8CountCodepoints(text) catch 0);
 }
 
 pub fn addnstrto(text: []const u8, right: u16) void {
@@ -235,14 +234,14 @@ pub fn addnstrto(text: []const u8, right: u16) void {
         i += n;
         len += @max(0, wcwidth(ch)); // HACK: ignore unprintable
     }
-    _ = k32.WriteConsoleA(output, text.ptr, @intCast(w.DWORD, i), &ignored, null);
-    lastCursorX += @intCast(u16, len);
+    _ = k32.WriteConsoleA(output, text.ptr, @intCast(i), &ignored, null);
+    lastCursorX += @intCast(len);
 }
 
 pub fn mvhline(y: u16, x: u16, ch: u8, count: u16, newStyle: u16) void {
     //console.console_clear();
     var ignored: w.DWORD = 0;
-    const coord = w.COORD{ .X = @intCast(i16, x), .Y = @intCast(i16, y) };
+    const coord = w.COORD{ .X = @intCast(x), .Y = @intCast(y) };
     _ = k32.FillConsoleOutputAttribute(output, newStyle, count, coord, &ignored);
     _ = k32.FillConsoleOutputCharacterW(output, ch, count, coord, &ignored);
     move(y, x + count); // TODO: do I really need it?
@@ -263,7 +262,7 @@ pub const ControlKeys = struct {
     }
 };
 
-pub const MouseInfo = struct { y: u16, x: u16, buttons: u16 };
+pub const MouseInfo = struct { y: u16, x: u16, buttons: u32 };
 
 pub const InputEvent = struct {
     data: union(enum) { char: u32, key: u16, resize: void, mouse: MouseInfo },
@@ -298,7 +297,7 @@ pub fn getch() InputEvent {
                 const me = ir[0].Event.MouseEvent;
                 //std.debug.print("MouseEvent {} {} {} {}\r\n", .{me.dwButtonState, me.dwEventFlags, me.dwMousePosition.X, me.dwMousePosition.Y});
                 if (me.dwButtonState != lastMouse.buttons) {
-                    lastMouse = .{ .y = @intCast(u16, me.dwMousePosition.Y), .x = @intCast(u16, me.dwMousePosition.X), .buttons = @intCast(u16, me.dwButtonState) };
+                    lastMouse = .{ .y = @bitCast(me.dwMousePosition.Y), .x = @bitCast(me.dwMousePosition.X), .buttons = @bitCast(me.dwButtonState) };
                     return .{ .data = .{ .mouse = lastMouse }, .keys = ControlKeys.parse(me.dwControlKeyState) };
                 }
                 continue;
@@ -324,8 +323,8 @@ fn updateSize(updating: bool) bool {
         _ = k32.GetConsoleScreenBufferInfo(output, &csbi);
     const newSz = w.COORD{ .X = @max(csbi.srWindow.Right - csbi.srWindow.Left, 0) + 1, .Y = @max(csbi.srWindow.Bottom - csbi.srWindow.Top, 0) + 1 };
     if (newSz.X != COLS or newSz.Y != ROWS) {
-        COLS = @intCast(u16, newSz.X);
-        ROWS = @intCast(u16, newSz.Y);
+        COLS = @intCast(newSz.X);
+        ROWS = @intCast(newSz.Y);
         _ = k32.SetConsoleCursorPosition(output, .{ .X = 0, .Y = 0 });
         _ = k32.SetConsoleScreenBufferSize(output, newSz);
         _ = k32.SetConsoleCursorPosition(output, csbi.dwCursorPosition);

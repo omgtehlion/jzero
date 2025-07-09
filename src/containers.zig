@@ -73,7 +73,7 @@ pub fn ChunkedList(comptime T: type, comptime chunkSize: usize) type {
                 slice.len += count;
                 self.len += count;
             } else {
-                return error.Ooops;
+                return error.Oops;
             }
         }
     };
