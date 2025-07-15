@@ -463,7 +463,7 @@ pub fn main() !void {
     }
     redraw();
 
-    var ln = Linenoise.initWithHandles(gpa, tui.input, tui.output);
+    var ln = Linenoise.initWithFiles(gpa, .{ .handle = tui.input }, .{ .handle = tui.output });
     ln.print_newline = false;
     defer ln.deinit();
     //ln.history.load("history.txt") catch {}; defer ln.history.save("history.txt") catch {};
