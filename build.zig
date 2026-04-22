@@ -29,6 +29,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addImport("zig-json5", b.createModule(.{ .root_source_file = b.path("packages/zig-json5/src/main.zig"), .target = target, .optimize = optimize }));
     exe_mod.addImport("linenoise", b.dependency("linenoise", .{ .target = target, .optimize = optimize }).module("linenoise"));
     exe_mod.addImport("wcwidth", b.dependency("wcwidth", .{ .target = target, .optimize = optimize }).module("wcwidth"));
+    exe_mod.addImport("vaxis", b.dependency("vaxis", .{ .target = target, .optimize = optimize }).module("vaxis"));
 
     // Modules can depend on one another using the `std.Build.Module.addImport` function.
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
@@ -42,10 +43,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    if (@import("builtin").target.os.tag != .windows) {
-        exe.linkLibC();
-        exe.linkSystemLibrary("ncursesw");
-    } else {
+    if (target.result.os.tag == .windows) {
         exe.addObjectFile(.{ .cwd_relative = "jzero.res.obj" });
     }
 

@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const Linenoise = @import("linenoise").Linenoise;
 const tree = @import("./tree.zig");
 //const tui = @import("./tui-win32.zig");
-const tui = if (@import("builtin").target.os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-ncurses.zig");
+const tui = if (@import("builtin").target.os.tag == .windows) @import("./tui-win32.zig") else @import("./tui-vaxis.zig");
 const ChunkedList = @import("./containers.zig").ChunkedList;
 const search = @import("./search.zig");
 
@@ -200,7 +200,8 @@ fn drawLine(node: *tree.Node, selected: bool, y: u16, tvXX: u16) void {
         }
         if (scrolled > 0)
             tui.addnstrto("…", tvXX);
-        printMatched(node.value[scrolled..], tui.stValue, selected, tvXX);
+        const strToPrint = if (scrolled > 0) node.value[scrolled + 1 ..] else node.value;
+        printMatched(strToPrint, tui.stValue, selected, tvXX);
         if (tui.getcurx() >= tvXX)
             _ = scrollXPerNode.getOrPutValue(@intFromPtr(node), 0) catch {};
     }
@@ -334,15 +335,15 @@ fn findMatchedNode() ?*tree.Node {
 
 //⇧shift ⌃ctrl ⎇alt ⌥option ⌘command
 const Help =
-    \\  H, ⎇←        Focus the parent of the focused node, even if it is an
+    \\  H, Alt←      Focus the parent of the focused node, even if it is an
     \\               expanded object or array
-    \\  J, ⎇↓        Move to the focused node's next     sibling
-    \\  K, ⎇↑        Move to the focused node's previous sibling
+    \\  J, Alt↓      Move to the focused node's   next   sibling
+    \\  K, Alt↑      Move to the focused node's previous sibling
     \\  c            Collapse the focused node and all its siblings
     \\  e            Expand   the focused node and all its siblings
     \\
     \\  ^e           Scroll down one line
-    \\  ^y           Scroll up   one line
+    \\  ^y           Scroll  up  one line
     \\  .            Scroll value right
     \\  ,            Scroll value left
     \\
@@ -506,7 +507,7 @@ pub fn main() !void {
                 key.KEY_ESC => break,
                 key.KEY_HOME => currentY = 0,
                 key.KEY_END => currentY = tree.height() - 1,
-                key.KEY_F(1) => showHelp(),
+                key.KEY_F1 => showHelp(),
                 else => continue,
             },
             .char => |c| switch (c) {
@@ -589,10 +590,11 @@ pub fn main() !void {
                 // scroll left / right
                 ',', '.' => if (tree.atY(currentY)) |node| {
                     if (scrollXPerNode.get(@intFromPtr(node))) |scrollX| {
-                        const newScroll = if (c == ',') scrollX -| 1 else scrollX +| 1;
+                        const newScroll = if (c == ',') scrollX -| 1 else @min(scrollX +| 1, node.value.len -| 1);
                         scrollXPerNode.put(@intFromPtr(node), newScroll) catch {};
                     }
                 },
+                '?' => showHelp(),
                 else => continue,
             },
             .mouse => |mouse| {

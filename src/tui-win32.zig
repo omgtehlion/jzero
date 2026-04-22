@@ -95,9 +95,10 @@ pub const key = struct {
     pub const KEY_HOME = 0x24;
     pub const KEY_END = 0x23;
     pub const KEY_ENTER = 0x0D; // VK_RETURN
-    pub fn KEY_F(comptime n: comptime_int) comptime_int {
-        return n + 0x6F;
-    }
+    pub const KEY_F1 = 0x70;
+    //pub fn KEY_F(comptime n: comptime_int) comptime_int {
+    //    return n + 0x6F;
+    //}
 };
 
 pub var COLS: u16 = 0;
