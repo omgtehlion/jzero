@@ -21,8 +21,6 @@ A high-performance command-line JSON viewer that can handle gigabytes of JSON da
 ### Prerequisites
 
 - Zig 0.14 or later
-- Linux: `ncursesw` development library
-- Windows: No additional dependencies required
 
 ## Contributing
 
